@@ -1,0 +1,31 @@
+Options -Indexes
+RewriteEngine On
+
+# Fichiers et dossiers cachés (.git, .env…) : jamais servis.
+RewriteRule (^|/)\.(?!well-known/) - [F,L]
+
+# Dossiers internes : jamais servis directement.
+RewriteRule ^(src|data|collections|bin|imports|styles|node_modules)(/|$) - [F,L]
+RewriteRule ^(config\.php|package(-lock)?\.json)$ - [F,L]
+
+# Fichiers du back-office, du site public et des bibliothèques servis tels quels, tout le reste passe par index.php.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_URI} !/admin/$
+RewriteRule ^ index.php [QSA,L]
+
+# Réponses JSON compressées (la liste des points peut être volumineuse).
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE application/json
+</IfModule>
+
+# En-têtes de sécurité des fichiers statiques (les réponses de PHP les envoient elles-mêmes,
+# voir Http::securityHeaders). La politique de contenu doit rester identique à Http::CSP.
+<IfModule mod_headers.c>
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tile.openstreetmap.org; font-src 'self'; connect-src 'self' https://nominatim.openstreetmap.org; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "DENY"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+    Header always set Cross-Origin-Opener-Policy "same-origin"
+    Header always set Strict-Transport-Security "max-age=31536000" "expr=%{HTTPS} == 'on'"
+</IfModule>

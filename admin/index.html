@@ -1,0 +1,719 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>geocrowd · back-office</title>
+  <link rel="stylesheet" href="../vendor/geist/geist.css">
+  <link rel="stylesheet" href="../vendor/leaflet/leaflet.css">
+  <!-- Compilé depuis styles/admin.css par Tailwind (npm run build:admin) -->
+  <link rel="stylesheet" href="css/admin.css">
+  <script src="../vendor/leaflet/leaflet.js" defer></script>
+  <script src="../vendor/qrcode-generator/qrcode.js" defer></script>
+  <script src="js/app.js" type="module"></script>
+</head>
+<body>
+  <div id="map" class="fixed inset-0 z-0 bg-ground"></div>
+
+  <div class="pointer-events-none relative z-[1] flex min-h-screen flex-col gap-4 p-4 *:pointer-events-auto max-sm:p-2">
+    <header class="glass flex flex-wrap items-center gap-x-4 gap-y-2.5 py-2 pr-2.5 pl-[18px]" id="topbar" hidden>
+      <strong class="text-[17px] font-bold">geocrowd</strong>
+      <nav class="flex flex-auto flex-wrap gap-0.5 [&>a]:rounded [&>a]:px-2.5 [&>a]:py-[7px] [&>a]:font-semibold [&>a]:text-muted [&>a]:no-underline [&>a]:hover:text-ink [&>a]:current:bg-brand-soft [&>a]:current:text-brand">
+        <a href="#/moderation" data-nav="moderation">Modération <span data-pending></span></a>
+        <a href="#/edits" data-nav="edits">Modifications <span data-edits></span></a>
+        <a href="#/points" data-nav="points">Points</a>
+        <a href="#/collections" data-nav="collections" data-admin>Collections</a>
+        <a href="#/members" data-nav="members" data-admin>Membres</a>
+        <a href="#/keys" data-nav="keys" data-admin>Clés d'API</a>
+        <a href="#/site" data-nav="site" data-admin>Site public</a>
+        <a href="#/audit" data-nav="audit" data-admin>Journal</a>
+      </nav>
+      <form class="max-sm:basis-full" id="search" role="search">
+        <input class="input w-44 max-sm:w-full" type="search" name="q" placeholder="Rechercher un lieu…" aria-label="Rechercher un lieu">
+      </form>
+      <a class="flex items-center gap-2 text-meta text-muted no-underline hover:text-ink" href="#/account" title="Mon compte"><span data-user-name></span> <span class="badge" data-user-role></span></a>
+      <button type="button" class="link" id="logout">Déconnexion</button>
+    </header>
+
+    <p class="glass m-0 border-danger-line px-4 py-3 text-sm leading-normal text-danger [&_code]:text-meta" id="exposure" role="alert" hidden>
+      La base de données est téléchargeable depuis le web (<code>data/geocrowd.sqlite</code>) : le fichier <code>.htaccess</code> n'est pas appliqué par le serveur.
+      Configurez le serveur pour refuser l'accès au dossier <code>data/</code>, ou déplacez la base et le dossier de données hors de la racine web (<code>config.php</code>).
+    </p>
+
+    <main id="view" class="pointer-events-none flex flex-col items-start gap-4 *:pointer-events-auto has-[.card-auth]:min-h-[calc(100vh-32px)] has-[.card-auth]:items-center has-[.card-auth]:justify-center"></main>
+  </div>
+
+  <!-- Comptes -->
+
+  <template id="tpl-login">
+    <form class="glass card-auth flex w-full max-w-[380px] flex-col gap-[18px] p-7">
+      <div class="flex flex-col gap-1">
+        <strong class="text-xl font-bold">geocrowd</strong>
+        <span class="muted">Connexion au back-office</span>
+      </div>
+      <label class="field">E-mail <input class="input" type="email" name="email" autocomplete="username" required></label>
+      <label class="field">Mot de passe <input class="input" type="password" name="password" autocomplete="current-password" required></label>
+      <p class="error" data-error hidden></p>
+      <button type="submit" class="btn btn-primary">Se connecter</button>
+    </form>
+  </template>
+
+  <template id="tpl-setup">
+    <form class="glass card-auth flex w-full max-w-[380px] flex-col gap-[18px] p-7">
+      <div class="flex flex-col gap-1">
+        <strong class="text-xl font-bold">geocrowd</strong>
+        <span class="muted">Premier lancement : créez le compte d'administration.</span>
+      </div>
+      <label class="field">Nom <input class="input" name="name" autocomplete="name" required></label>
+      <label class="field">E-mail <input class="input" type="email" name="email" autocomplete="username" required></label>
+      <label class="field">Mot de passe <input class="input" type="password" name="password" autocomplete="new-password" minlength="10" required></label>
+      <p class="error" data-error hidden></p>
+      <button type="submit" class="btn btn-primary">Créer le compte</button>
+    </form>
+  </template>
+
+  <template id="tpl-invitation">
+    <form class="glass card-auth flex w-full max-w-[380px] flex-col gap-[18px] p-7">
+      <div class="flex flex-col gap-1">
+        <strong class="text-xl font-bold">geocrowd</strong>
+        <span class="muted">Invitation pour <strong data-text="email"></strong> (<span data-text="role"></span>)</span>
+      </div>
+      <label class="field">Nom <input class="input" name="name" autocomplete="name" required></label>
+      <label class="field">Mot de passe <input class="input" type="password" name="password" autocomplete="new-password" minlength="10" required></label>
+      <p class="error" data-error hidden></p>
+      <button type="submit" class="btn btn-primary">Rejoindre</button>
+    </form>
+  </template>
+
+  <!-- Double authentification : carte de connexion et formulaires réutilisés dans « Mon compte » -->
+
+  <template id="tpl-auth-card">
+    <div class="glass card-auth flex w-full max-w-[380px] flex-col gap-[18px] p-7">
+      <div class="flex flex-col gap-1">
+        <strong class="text-xl font-bold">geocrowd</strong>
+        <span class="muted" data-text="subtitle"></span>
+      </div>
+      <div class="flex flex-col gap-[18px]" data-slot></div>
+      <button type="button" class="link" data-cancel>Annuler</button>
+    </div>
+  </template>
+
+  <template id="tpl-code-form">
+    <form class="flex flex-col gap-[18px]">
+      <label class="field">Code <input class="input input-code" name="code" autocomplete="one-time-code" spellcheck="false" required></label>
+      <p class="error" data-error hidden></p>
+      <button type="submit" class="btn btn-primary">Valider</button>
+      <button type="button" class="btn" data-resend hidden>Renvoyer le code par e-mail</button>
+      <p class="muted m-0" data-text="resent"></p>
+    </form>
+  </template>
+
+  <template id="tpl-two-factor-choice">
+    <div class="flex flex-col gap-2.5">
+      <button type="button" class="role w-full text-left hover:border-brand" data-choose="totp">
+        <span><strong>Application d'authentification</strong><br><span class="muted">Aegis, FreeOTP, Google Authenticator, 1Password, Bitwarden… Recommandé : fonctionne sans réseau et résiste mieux au détournement d'une boîte mail.</span></span>
+      </button>
+      <button type="button" class="role w-full text-left hover:border-brand" data-choose="email">
+        <span><strong>Code par e-mail</strong><br><span class="muted">Un code à 6 chiffres envoyé à votre adresse à chaque connexion.</span></span>
+      </button>
+    </div>
+  </template>
+
+  <template id="tpl-totp-setup">
+    <form class="flex flex-col gap-[18px]">
+      <ol class="m-0 flex list-decimal flex-col gap-3 pl-5 text-sm leading-[1.45]">
+        <li>Installez une application d'authentification : Aegis, FreeOTP, Google Authenticator, Microsoft Authenticator, 1Password, Bitwarden…</li>
+        <li>Scannez ce QR code avec l'application.
+          <div class="mt-2.5 w-[184px] rounded border border-edge bg-white p-1.5 [&_svg]:block [&_svg]:h-auto [&_svg]:w-full" data-qr></div>
+          <details class="mt-2 text-meta [&_summary]:cursor-pointer [&_summary]:text-brand">
+            <summary>Saisir la clé à la main</summary>
+            <code class="mt-1.5 block text-sm break-all select-all" data-text="secret"></code>
+          </details>
+        </li>
+        <li>Saisissez le code à 6 chiffres qu'elle affiche.</li>
+      </ol>
+      <label class="field">Code <input class="input input-code" name="code" inputmode="numeric" autocomplete="one-time-code" required></label>
+      <p class="error" data-error hidden></p>
+      <button type="submit" class="btn btn-primary">Activer</button>
+    </form>
+  </template>
+
+  <template id="tpl-email-setup">
+    <form class="flex flex-col gap-[18px]">
+      <p class="m-0 text-sm leading-[1.45]">Un code va être envoyé à votre adresse e-mail pour vérifier qu'elle reçoit bien les messages de geocrowd.</p>
+      <button type="button" class="btn" data-send>Envoyer le code</button>
+      <p class="muted m-0" data-text="sent"></p>
+      <label class="field">Code reçu <input class="input input-code" name="code" inputmode="numeric" autocomplete="one-time-code" required disabled></label>
+      <p class="error" data-error hidden></p>
+      <button type="submit" class="btn btn-primary" disabled>Activer</button>
+    </form>
+  </template>
+
+  <template id="tpl-recovery-codes">
+    <div class="flex flex-col gap-3.5 text-sm leading-[1.45]">
+      <p class="m-0">Chaque code de secours permet de se connecter <strong>une fois</strong> sans votre second facteur (téléphone ou boîte mail). Conservez-les en lieu sûr (gestionnaire de mots de passe, papier) : ils ne seront plus affichés.</p>
+      <ol class="m-0 grid list-decimal grid-cols-2 gap-x-4 gap-y-1.5 rounded bg-mist py-3 pr-3 pl-[34px] font-mono text-sm" data-codes></ol>
+      <div class="flex gap-2.5 *:flex-1">
+        <button type="button" class="btn" data-copy>Copier</button>
+        <button type="button" class="btn" data-download>Télécharger</button>
+      </div>
+      <label class="check"><input type="checkbox" data-confirm> J'ai conservé ces codes</label>
+      <button type="button" class="btn btn-primary" data-continue disabled>Continuer</button>
+    </div>
+  </template>
+
+  <template id="tpl-account">
+    <section class="glass flex w-full max-w-[480px] flex-col gap-3.5 p-[18px]">
+      <div class="flex items-baseline justify-between gap-3"><h1>Mon compte</h1></div>
+      <span class="muted" data-text="identity"></span>
+      <div class="flex flex-col gap-2.5 border-t border-line pt-3">
+        <h2>Double authentification</h2>
+        <p class="m-0 text-sm" data-text="status"></p>
+        <div class="flex flex-wrap gap-1.5" data-actions>
+          <button type="button" class="btn" data-enable="totp">Activer avec une application</button>
+          <button type="button" class="btn" data-enable="email">Activer par e-mail</button>
+          <button type="button" class="btn btn-danger" data-disable>Désactiver</button>
+        </div>
+        <div class="flex flex-col gap-3.5 rounded border border-edge bg-white p-3.5" data-slot hidden></div>
+      </div>
+      <div class="flex flex-col gap-2.5 border-t border-line pt-3" data-recovery>
+        <h2>Codes de secours</h2>
+        <p class="muted m-0" data-text="remaining"></p>
+        <div class="flex flex-wrap gap-1.5"><button type="button" class="btn self-start" data-renew>Générer de nouveaux codes</button></div>
+        <div data-codes-box hidden></div>
+      </div>
+      <form class="flex flex-col gap-2.5 rounded border border-edge bg-white p-3.5" data-password hidden novalidate>
+        <p class="m-0 text-sm" data-text="confirm"></p>
+        <label class="field">Mot de passe <input class="input" type="password" name="password" autocomplete="current-password" required></label>
+        <p class="error" data-error hidden></p>
+        <div class="flex flex-wrap gap-1.5">
+          <button type="submit" class="btn btn-primary" data-text="action"></button>
+          <button type="button" class="btn" data-cancel>Annuler</button>
+        </div>
+      </form>
+      <p class="muted m-0">Second facteur et codes de secours perdus ? Un compte admin peut réinitialiser votre double authentification depuis la page Membres.</p>
+    </section>
+  </template>
+
+  <!-- Points -->
+
+  <template id="tpl-list">
+    <aside class="glass flex w-full max-w-[440px] flex-col">
+      <div class="mx-[18px] mt-[18px] flex items-baseline justify-between gap-3">
+        <h1 data-text="title"></h1>
+        <span class="muted" data-text="total"></span>
+      </div>
+      <div class="mx-[18px] mt-[18px] flex gap-[3px] rounded bg-mist p-[3px] [&>button]:min-h-8 [&>button]:flex-1 [&>button]:cursor-pointer [&>button]:rounded [&>button]:text-meta [&>button]:font-semibold [&>button]:text-muted [&>button]:current:bg-white [&>button]:current:text-ink [&>button]:current:shadow-sm" role="group" aria-label="Statut">
+        <button type="button" data-status="pending">En attente</button>
+        <button type="button" data-status="published">Publiés</button>
+        <button type="button" data-status="rejected">Refusés</button>
+      </div>
+      <div class="mx-[18px] mt-[18px] mb-3.5 flex gap-2">
+        <select class="input min-w-0 flex-auto" name="collection" aria-label="Collection">
+          <option value="">Toutes les collections</option>
+        </select>
+        <a class="btn" href="#/points/new">Ajouter un point</a>
+      </div>
+      <ul class="items m-0 list-none border-t border-line p-0"></ul>
+      <p class="muted m-0 p-[18px]" data-empty hidden>Aucun point.</p>
+      <div class="flex items-center justify-between px-[18px] py-3" data-pager>
+        <button type="button" class="btn" data-prev>Précédent</button>
+        <span class="muted" data-text="page"></span>
+        <button type="button" class="btn" data-next>Suivant</button>
+      </div>
+    </aside>
+  </template>
+
+  <template id="tpl-list-item">
+    <li class="flex cursor-pointer flex-col gap-2.5 border-b border-line px-[18px] py-3.5 selected:bg-brand/7">
+      <div class="flex flex-wrap items-center gap-2">
+        <strong class="flex-auto text-[15px]" data-text="title"></strong>
+        <span class="badge" data-status-badge></span>
+      </div>
+      <span class="muted" data-text="meta"></span>
+      <div class="flex flex-wrap gap-1.5">
+        <a class="btn" data-edit>Modifier</a>
+        <button type="button" class="btn btn-danger" data-set-status="rejected">Refuser</button>
+        <button type="button" class="btn btn-primary ml-auto" data-set-status="published">Valider</button>
+      </div>
+    </li>
+  </template>
+
+  <template id="tpl-point">
+    <form class="glass flex w-full max-w-[440px] flex-col gap-3.5 p-[18px]" novalidate>
+      <a class="cursor-pointer text-meta no-underline" data-back>← Retour</a>
+      <div class="flex items-baseline justify-between gap-3">
+        <h1 data-text="title"></h1>
+        <span class="badge" data-status-badge></span>
+      </div>
+      <span class="muted" data-text="meta"></span>
+      <label class="field" data-new-only>Collection <select class="input" name="collection"></select></label>
+      <label class="field">Statut
+        <select class="input" name="status">
+          <option value="pending">En attente</option>
+          <option value="published">Publié</option>
+          <option value="rejected">Refusé</option>
+        </select>
+      </label>
+      <div class="flex gap-2.5 *:min-w-0 *:flex-1">
+        <label class="field">Latitude <input class="input" type="number" step="any" name="lat" required></label>
+        <label class="field">Longitude <input class="input" type="number" step="any" name="lng" required></label>
+      </div>
+      <small class="muted">Cliquer sur la carte ou glisser le repère pour déplacer le point.</small>
+      <div class="flex flex-col gap-3 border-t border-line pt-3 empty:hidden" data-fields></div>
+      <p class="error" data-error hidden></p>
+      <div class="flex flex-wrap gap-1.5 border-t border-line pt-3">
+        <button type="button" class="btn btn-danger" data-delete>Supprimer</button>
+        <a class="btn ml-auto" data-back>Annuler</a>
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+      </div>
+    </form>
+  </template>
+
+  <!-- Propositions de modification -->
+
+  <template id="tpl-edits">
+    <aside class="glass flex w-full max-w-[440px] flex-col">
+      <div class="mx-[18px] mt-[18px] flex items-baseline justify-between gap-3">
+        <h1>Modifications proposées</h1>
+        <span class="muted" data-text="total"></span>
+      </div>
+      <p class="muted mx-[18px] mt-1.5 mb-3.5">Corrections de points publiés envoyées par l'API publique.</p>
+      <ul class="items m-0 list-none border-t border-line p-0"></ul>
+      <p class="muted m-0 p-[18px]" data-empty hidden>Aucune proposition en attente.</p>
+      <div class="flex items-center justify-between px-[18px] py-3" data-pager>
+        <button type="button" class="btn" data-prev>Précédent</button>
+        <span class="muted" data-text="page"></span>
+        <button type="button" class="btn" data-next>Suivant</button>
+      </div>
+    </aside>
+  </template>
+
+  <template id="tpl-edit-item">
+    <li class="flex cursor-pointer flex-col gap-2.5 border-b border-line px-[18px] py-3.5 hover:bg-brand/5">
+      <div class="flex flex-wrap items-center gap-2"><strong class="flex-auto text-[15px]" data-text="title"></strong></div>
+      <span class="muted" data-text="meta"></span>
+      <span data-text="fields"></span>
+      <div class="flex flex-wrap gap-1.5"><a class="btn" data-open>Examiner</a></div>
+    </li>
+  </template>
+
+  <template id="tpl-edit">
+    <section class="glass flex w-full max-w-[640px] flex-col gap-3.5 p-[18px]">
+      <a class="cursor-pointer text-meta no-underline" href="#/edits">← Retour</a>
+      <div class="flex items-baseline justify-between gap-3"><h1 data-text="title"></h1></div>
+      <span class="muted" data-text="meta"></span>
+      <blockquote class="m-0 border-l-[3px] border-accent bg-pending-soft px-3.5 py-2.5 text-sm whitespace-pre-line" data-comment hidden><span data-text="comment"></span></blockquote>
+      <div class="table-wrap overflow-x-auto">
+        <table class="table diff">
+          <thead><tr><th>Champ</th><th>Actuellement</th><th>Proposé</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <small class="muted" data-move hidden>Sur la carte : position actuelle en vert, proposée en orange.</small>
+      <p class="error" data-error hidden></p>
+      <div class="flex flex-wrap gap-1.5 border-t border-line pt-3">
+        <a class="btn" data-point>Ouvrir le point</a>
+        <button type="button" class="btn btn-danger ml-auto" data-reject>Refuser</button>
+        <button type="button" class="btn btn-primary" data-apply>Appliquer</button>
+      </div>
+    </section>
+  </template>
+
+  <!-- Champs des collections : un modèle par type -->
+
+  <template id="tpl-field-text">
+    <label class="field"><span data-label></span><input class="input" type="text" data-input><small class="field-error" data-field-error></small></label>
+  </template>
+  <template id="tpl-field-url">
+    <label class="field"><span data-label></span><input class="input" type="url" data-input><small class="field-error" data-field-error></small></label>
+  </template>
+  <template id="tpl-field-number">
+    <label class="field"><span data-label></span><input class="input" type="number" step="any" data-input><small class="field-error" data-field-error></small></label>
+  </template>
+  <template id="tpl-field-textarea">
+    <label class="field"><span data-label></span><textarea class="input" rows="3" data-input></textarea><small class="field-error" data-field-error></small></label>
+  </template>
+  <template id="tpl-field-select">
+    <label class="field"><span data-label></span><select class="input" data-input><option value=""></option></select><small class="field-error" data-field-error></small></label>
+  </template>
+  <template id="tpl-field-multiselect">
+    <fieldset class="m-0 flex flex-col gap-2 border-0 p-0"><legend class="mb-1.5 p-0 text-meta font-semibold" data-label></legend><div class="flex flex-col [&_.check]:min-h-[30px]" data-input></div><small class="field-error" data-field-error></small></fieldset>
+  </template>
+  <template id="tpl-choice">
+    <label class="check"><input type="checkbox"> <span data-text="option"></span></label>
+  </template>
+  <template id="tpl-field-date">
+    <label class="field"><span data-label></span><input class="input" type="date" data-input><small class="field-error" data-field-error></small></label>
+  </template>
+  <template id="tpl-field-ref">
+    <label class="field"><span data-label></span><input class="input" type="number" min="1" step="1" data-input><small class="muted" data-hint></small><small class="field-error" data-field-error></small></label>
+  </template>
+  <template id="tpl-field-boolean">
+    <div class="field"><label class="check"><input type="checkbox" data-input> <span data-label></span></label><small class="field-error" data-field-error></small></div>
+  </template>
+  <template id="tpl-field-image">
+    <div class="field">
+      <span data-label></span>
+      <ul class="thumbs" data-thumbs></ul>
+      <input type="file" accept="image/jpeg,image/png,image/webp" multiple data-input>
+      <small class="muted" data-hint></small>
+      <small class="field-error" data-field-error></small>
+    </div>
+  </template>
+  <template id="tpl-thumb">
+    <li class="thumb"><img alt=""><button type="button" class="absolute top-0.5 right-0.5 size-[22px] cursor-pointer rounded bg-ink/75 p-0 text-sm leading-none text-white" aria-label="Retirer l'image">×</button></li>
+  </template>
+
+  <!-- Collections -->
+
+  <template id="tpl-collections">
+    <section class="glass flex w-full min-w-0 flex-col">
+      <div class="mx-[18px] mt-[18px] flex items-baseline justify-between gap-3">
+        <h1>Collections</h1>
+        <a class="btn btn-primary" href="#/collections/new">Nouvelle collection</a>
+      </div>
+      <p class="muted mx-[18px] mt-[18px] mb-0">Chaque collection a ses champs, sa modération et ses règles d'envoi. Cliquez sur une collection pour modifier son schéma.</p>
+      <div class="table-wrap mt-3.5 overflow-x-auto">
+        <table class="table">
+          <thead><tr><th>Nom</th><th>Champs</th><th>Publiés</th><th>En attente</th><th>Modération</th><th>Soumission publique</th><th>Modification publique</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="muted m-0 p-[18px]" data-empty hidden>Aucune collection pour l'instant. Créez-en une pour commencer à recevoir des points.</p>
+    </section>
+  </template>
+
+  <template id="tpl-collection-row">
+    <tr class="cursor-pointer hover:bg-brand/5" data-selectable>
+      <td><strong data-text="name"></strong><br><code data-text="id"></code></td>
+      <td data-text="fields"></td>
+      <td data-text="published"></td>
+      <td><span class="badge badge-pending" data-text="pending"></span></td>
+      <td><span class="badge" data-flag="moderation"></span></td>
+      <td><span class="badge" data-flag="public_submission"></span></td>
+      <td><span class="badge" data-flag="public_edit"></span></td>
+    </tr>
+  </template>
+
+  <!-- Éditeur de schéma -->
+
+  <template id="tpl-schema">
+    <div class="flex w-full flex-wrap items-start gap-4">
+      <form class="glass flex min-w-0 flex-[999_1_560px] flex-col gap-3.5 p-[18px] [&_.field>.input]:w-full [&_.field>.input]:min-w-0" novalidate>
+        <a class="cursor-pointer text-meta no-underline" href="#/collections">← Collections</a>
+        <div class="flex items-baseline justify-between gap-3"><h1 class="wrap-anywhere" data-text="title"></h1></div>
+
+        <div class="flex flex-wrap gap-2.5 *:min-w-0 *:flex-[1_1_180px]">
+          <label class="field">Nom
+            <input class="input" name="name" maxlength="100" placeholder="Bancs publics" autocomplete="off">
+            <small class="field-error" data-error-for="name"></small>
+          </label>
+          <label class="field">Identifiant
+            <input class="input input-mono" name="id" maxlength="50" placeholder="bancs" autocomplete="off" spellcheck="false">
+            <small class="muted" data-id-hint></small>
+            <small class="field-error" data-error-for="id"></small>
+          </label>
+        </div>
+
+        <label class="field">Description <span class="muted">facultative, affichée sur le site public</span>
+          <textarea class="input" name="description" rows="2" maxlength="1000"></textarea>
+          <small class="field-error" data-error-for="description"></small>
+        </label>
+
+        <div class="grid grid-cols-[repeat(auto-fit,minmax(190px,1fr))] gap-2">
+          <label class="role"><input type="checkbox" name="moderation">
+            <span><strong>Modération</strong><br><span class="muted">Les envois du public attendent une validation avant d'être publiés.</span></span></label>
+          <label class="role"><input type="checkbox" name="public_submission">
+            <span><strong>Soumission publique</strong><br><span class="muted">L'API accepte de nouveaux points envoyés par le public.</span></span></label>
+          <label class="role"><input type="checkbox" name="public_edit">
+            <span><strong>Modification publique</strong><br><span class="muted">L'API accepte des propositions de correction des points publiés.</span></span></label>
+        </div>
+
+        <div class="flex flex-col gap-2 border-t border-line pt-3">
+          <div class="flex items-baseline justify-between gap-3"><h2>Champs</h2><span class="muted" data-text="count"></span></div>
+          <p class="muted m-0">Chaque point a toujours une latitude et une longitude. Ajoutez ici les informations à recueillir, dans l'ordre où elles s'afficheront.</p>
+          <ol class="m-0 flex list-none flex-col gap-2.5 p-0 empty:hidden" data-fields></ol>
+          <div class="flex gap-2.5">
+            <select class="input min-w-0 flex-auto" data-new-type aria-label="Type du champ à ajouter"></select>
+            <button type="button" class="btn flex-none" data-add>Ajouter un champ</button>
+          </div>
+          <small class="field-error" data-error-for="fields"></small>
+        </div>
+
+        <p class="error" data-error hidden></p>
+        <div class="flex flex-wrap gap-1.5 border-t border-line pt-3">
+          <button type="button" class="btn btn-danger" data-delete>Supprimer la collection</button>
+          <a class="btn ml-auto" href="#/collections">Annuler</a>
+          <button type="submit" class="btn btn-primary">Enregistrer</button>
+        </div>
+      </form>
+
+      <aside class="glass flex min-w-0 flex-[1_1_340px] flex-col overflow-hidden">
+        <div class="flex items-center justify-between border-b border-line px-4 py-3"><strong>Définition JSON</strong><span class="badge">Aperçu</span></div>
+        <pre class="m-0 max-h-[calc(100vh-180px)] overflow-auto p-4 text-xs leading-[1.6]" data-json></pre>
+      </aside>
+    </div>
+  </template>
+
+  <template id="tpl-schema-field">
+    <li class="schema-field flex flex-col gap-2.5 rounded border border-edge bg-white px-3.5 py-3">
+      <div class="flex items-center gap-2">
+        <span class="badge" data-type-label></span>
+        <strong class="min-w-0 flex-auto truncate" data-text="title"></strong>
+        <span class="flex gap-1">
+          <button type="button" class="icon-btn" data-move="-1" aria-label="Monter le champ">↑</button>
+          <button type="button" class="icon-btn" data-move="1" aria-label="Descendre le champ">↓</button>
+          <button type="button" class="icon-btn icon-danger" data-remove aria-label="Supprimer le champ">✕</button>
+        </span>
+      </div>
+      <div class="flex flex-wrap gap-2.5 *:min-w-0 *:flex-[1_1_180px]">
+        <label class="field">Libellé
+          <input class="input" data-prop="label" maxlength="100" autocomplete="off">
+          <small class="field-error" data-error-for="label"></small>
+        </label>
+        <label class="field">Nom technique
+          <input class="input input-mono" data-prop="name" maxlength="50" autocomplete="off" spellcheck="false">
+          <small class="field-error" data-error-for="name"></small>
+        </label>
+        <label class="field">Type
+          <select class="input" data-prop="type"></select>
+          <small class="field-error" data-error-for="type"></small>
+        </label>
+      </div>
+      <label class="check" data-for="text textarea url number select multiselect date image ref"><input type="checkbox" data-prop="required"> Obligatoire</label>
+      <div class="flex flex-wrap gap-2.5 *:min-w-0 *:flex-[1_1_180px]" data-for="text textarea url">
+        <label class="field">Longueur maximale
+          <input class="input" type="number" min="1" max="10000" step="1" data-prop="maxLength" data-int>
+          <small class="field-error" data-error-for="maxLength"></small>
+        </label>
+      </div>
+      <div class="flex flex-wrap gap-2.5 *:min-w-0 *:flex-[1_1_180px]" data-for="number">
+        <label class="field">Minimum
+          <input class="input" type="number" step="any" data-prop="min" data-num>
+          <small class="field-error" data-error-for="min"></small>
+        </label>
+        <label class="field">Maximum
+          <input class="input" type="number" step="any" data-prop="max" data-num>
+          <small class="field-error" data-error-for="max"></small>
+        </label>
+      </div>
+      <label class="field" data-for="select multiselect">Choix proposés <span class="muted">un par ligne</span>
+        <textarea class="input" rows="4" data-prop="options" data-lines></textarea>
+        <small class="field-error" data-error-for="options"></small>
+      </label>
+      <div class="flex flex-wrap gap-2.5 *:min-w-0 *:flex-[1_1_180px]" data-for="image">
+        <label class="field">Nombre d'images
+          <input class="input" type="number" min="1" max="10" step="1" placeholder="1" data-prop="max" data-int>
+          <small class="field-error" data-error-for="max"></small>
+        </label>
+        <label class="field">Taille maximale (Mo)
+          <input class="input" type="number" min="1" max="20" step="1" placeholder="5" data-prop="maxSize" data-int>
+          <small class="field-error" data-error-for="maxSize"></small>
+        </label>
+      </div>
+      <label class="field" data-for="ref">Collection des points désignés
+        <select class="input" data-prop="collection"></select>
+        <small class="field-error" data-error-for="collection"></small>
+      </label>
+      <small class="muted" data-hint></small>
+    </li>
+  </template>
+
+  <!-- Membres -->
+
+  <template id="tpl-members">
+    <div class="flex w-full flex-wrap items-start gap-4">
+      <section class="glass flex min-w-0 flex-[999_1_560px] flex-col">
+        <div class="mx-[18px] mt-[18px] flex items-baseline justify-between gap-3"><h1>Membres</h1><span class="muted" data-text="total"></span></div>
+        <div class="table-wrap mt-3.5 overflow-x-auto">
+          <table class="table">
+            <thead><tr><th>Membre</th><th>Rôle</th><th>Double authentification</th><th>Dernière connexion</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="error mx-[18px] mb-[18px]" data-error hidden></p>
+      </section>
+      <div class="flex min-w-0 flex-[1_1_340px] flex-col gap-4">
+      <form class="glass flex flex-col gap-3.5 p-[18px]">
+        <h2>Nouvelle invitation</h2>
+        <label class="field">E-mail <input class="input" type="email" name="email" required></label>
+        <fieldset class="m-0 flex flex-col gap-2 border-0 p-0">
+          <legend class="mb-1.5 p-0 text-meta font-semibold">Rôle</legend>
+          <label class="role"><input type="radio" name="role" value="moderator" checked>
+            <span><strong>Modération</strong><br><span class="muted">Valide, refuse, ajoute et modifie des points.</span></span></label>
+          <label class="role"><input type="radio" name="role" value="admin">
+            <span><strong>Admin</strong><br><span class="muted">Tout, plus la gestion des membres et des collections.</span></span></label>
+        </fieldset>
+        <p class="error" data-invite-error hidden></p>
+        <button type="submit" class="btn btn-primary">Créer l'invitation</button>
+        <div class="flex flex-col gap-1.5" data-invite-link hidden>
+          <span class="muted">Lien à transmettre à la personne invitée (affiché une seule fois) :</span>
+          <div class="flex gap-2.5"><input class="input min-w-0 flex-auto" readonly aria-label="Lien d'invitation"><button type="button" class="btn flex-none" data-copy>Copier</button></div>
+        </div>
+      </form>
+      <form class="glass flex flex-col gap-3.5 p-[18px]" data-security novalidate>
+        <h2>Double authentification</h2>
+        <label class="field">Règle
+          <select class="input" name="policy">
+            <option value="optional">Facultative : chaque membre choisit</option>
+            <option value="admins">Obligatoire pour les comptes admin</option>
+            <option value="all">Obligatoire pour tous les membres</option>
+          </select>
+        </label>
+        <p class="muted m-0">Un membre concerné sans double authentification la configure à sa connexion suivante.</p>
+        <p class="m-0 text-sm" data-text="mail"></p>
+        <p class="error" data-security-error hidden></p>
+        <div class="flex flex-wrap items-center gap-1.5">
+          <button type="button" class="btn" data-test-mail>Envoyer un e-mail de test</button>
+          <span class="muted" data-security-saved hidden></span>
+          <button type="submit" class="btn btn-primary ml-auto">Enregistrer</button>
+        </div>
+      </form>
+      </div>
+    </div>
+  </template>
+
+  <template id="tpl-member-row">
+    <tr>
+      <td><strong data-text="name"></strong><br><span class="muted" data-text="email"></span></td>
+      <td><select class="input input-small" aria-label="Rôle" data-role>
+        <option value="moderator">Modération</option>
+        <option value="admin">Admin</option>
+      </select></td>
+      <td><span class="badge" data-two-factor></span></td>
+      <td class="muted" data-text="last"></td>
+      <td class="text-right whitespace-nowrap">
+        <button type="button" class="btn" data-reset title="Supprime sa double authentification et ses codes de secours ; si la règle l'exige, elle sera reconfigurée à la connexion suivante">Réinitialiser la double auth.</button>
+        <button type="button" class="btn btn-danger" data-remove>Retirer</button><span class="muted" data-self hidden>Vous</span>
+      </td>
+    </tr>
+  </template>
+
+  <template id="tpl-invitation-row">
+    <tr>
+      <td><strong>—</strong><br><span class="muted" data-text="email"></span></td>
+      <td data-text="role"></td>
+      <td></td>
+      <td><span class="badge badge-pending">Invitation en attente</span></td>
+      <td class="text-right whitespace-nowrap"><button type="button" class="btn btn-danger" data-remove>Annuler</button></td>
+    </tr>
+  </template>
+
+  <!-- Site public -->
+
+  <template id="tpl-site">
+    <form class="glass flex w-full max-w-[520px] flex-col gap-3.5 p-[18px]" novalidate>
+      <div class="flex items-baseline justify-between gap-3"><h1>Site public</h1><a class="btn flex-none" data-open target="_blank" rel="noopener">Ouvrir</a></div>
+      <p class="muted m-0">Carte des points publiés servie à la racine de l'instance, avec formulaires d'ajout et de proposition de modification. Désactivé, la racine renvoie vers le back-office.</p>
+      <label class="role"><input type="checkbox" name="enabled">
+        <span><strong>Activer le site public</strong><br><span class="muted" data-text="address"></span></span></label>
+      <label class="field">Titre
+        <input class="input" name="title" maxlength="100" required>
+        <small class="field-error" data-error-for="title"></small>
+      </label>
+      <label class="field">Texte d'introduction <span class="muted">facultatif</span>
+        <textarea class="input" name="intro" rows="4" maxlength="2000"></textarea>
+        <small class="field-error" data-error-for="intro"></small>
+      </label>
+      <fieldset class="m-0 flex flex-col gap-2 border-0 p-0">
+        <legend class="mb-1.5 p-0 text-meta font-semibold">Collections affichées</legend>
+        <div class="flex flex-col [&_.check]:min-h-[30px]" data-collections></div>
+        <small class="muted">Aucune cochée : toutes les collections sont affichées.</small>
+      </fieldset>
+      <fieldset class="m-0 flex flex-col gap-2 border-0 p-0">
+        <legend class="mb-1.5 p-0 text-meta font-semibold">Envois depuis le site</legend>
+        <label class="check"><input type="checkbox" name="submission"> Ajout de points</label>
+        <label class="check"><input type="checkbox" name="edits"> Propositions de modification</label>
+        <small class="muted">Dans la limite de ce que chaque collection autorise (soumission et modification publiques), avec sa modération.</small>
+      </fieldset>
+      <div class="field">Vue de carte par défaut
+        <span class="muted" data-text="view"></span>
+        <button type="button" class="btn self-start" data-capture>Reprendre la vue actuelle de la carte</button>
+        <small class="field-error" data-error-for="center"></small>
+      </div>
+      <p class="error" data-error hidden></p>
+      <div class="flex flex-wrap items-center gap-1.5 border-t border-line pt-3">
+        <span class="muted" data-saved hidden>Enregistré.</span>
+        <button type="submit" class="btn btn-primary ml-auto">Enregistrer</button>
+      </div>
+    </form>
+  </template>
+
+  <!-- Journal -->
+
+  <template id="tpl-audit">
+    <section class="glass flex w-full min-w-0 flex-col">
+      <div class="mx-[18px] mt-[18px] flex items-baseline justify-between gap-3"><h1>Journal</h1><span class="muted" data-text="total"></span></div>
+      <p class="muted mx-[18px] mt-[18px] mb-0">Actions faites dans le back-office et tentatives de connexion, conservées un an.</p>
+      <div class="table-wrap mt-3.5 overflow-x-auto">
+        <table class="table">
+          <thead><tr><th>Date</th><th>Membre</th><th>Action</th><th>Objet</th><th>Détails</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="flex items-center justify-between px-[18px] py-3" data-pager>
+        <button type="button" class="btn" data-prev>Plus récentes</button>
+        <span class="muted" data-text="page"></span>
+        <button type="button" class="btn" data-next>Plus anciennes</button>
+      </div>
+    </section>
+  </template>
+
+  <template id="tpl-audit-row">
+    <tr>
+      <td class="muted" data-text="date"></td>
+      <td data-text="user"></td>
+      <td data-text="action"></td>
+      <td><code data-text="target"></code></td>
+      <td class="muted" data-text="details"></td>
+    </tr>
+  </template>
+
+  <!-- Clés d'API -->
+
+  <template id="tpl-keys">
+    <div class="flex w-full flex-wrap items-start gap-4">
+      <section class="glass flex min-w-0 flex-[999_1_560px] flex-col">
+        <div class="mx-[18px] mt-[18px] flex items-baseline justify-between gap-3"><h1>Clés d'API</h1><span class="muted" data-text="total"></span></div>
+        <p class="muted mx-[18px] mt-[18px] mb-0" data-text="mode"></p>
+        <div class="table-wrap mt-3.5 overflow-x-auto">
+          <table class="table">
+            <thead><tr><th>Nom</th><th>Domaines autorisés</th><th>Dernière utilisation</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="muted m-0 p-[18px]" data-empty hidden>Aucune clé.</p>
+        <p class="error mx-[18px] mb-[18px]" data-error hidden></p>
+      </section>
+      <form class="glass flex min-w-0 flex-[1_1_340px] flex-col gap-3.5 p-[18px]">
+        <h2>Nouvelle clé</h2>
+        <label class="field">Nom <input class="input" name="name" placeholder="Carte du site de l'association" required></label>
+        <label class="field">Domaines autorisés
+          <textarea class="input" name="domains" rows="3" placeholder="exemple.org&#10;*.exemple.org"></textarea>
+          <small class="muted">Un par ligne ; <code>*.exemple.org</code> pour tous ses sous-domaines. La clé ne sera acceptée que depuis les pages de ces sites et peut figurer dans leur code. Laisser vide pour une clé de serveur, utilisable de partout et à garder secrète.</small>
+        </label>
+        <p class="error" data-key-error hidden></p>
+        <button type="submit" class="btn btn-primary">Créer la clé</button>
+        <div class="flex flex-col gap-1.5" data-new-key hidden>
+          <span class="muted">Clé à copier maintenant (elle ne sera plus affichée) :</span>
+          <div class="flex gap-2.5"><input class="input min-w-0 flex-auto" readonly aria-label="Clé d'API"><button type="button" class="btn flex-none" data-copy>Copier</button></div>
+        </div>
+      </form>
+    </div>
+  </template>
+
+  <template id="tpl-key-row">
+    <tr>
+      <td><strong data-text="name"></strong><br><code data-text="prefix"></code></td>
+      <td data-domains></td>
+      <td class="muted" data-text="last"></td>
+      <td class="text-right whitespace-nowrap"><button type="button" class="btn btn-danger" data-remove>Révoquer</button></td>
+    </tr>
+  </template>
+
+  <template id="tpl-error">
+    <p class="glass m-0 w-full max-w-[440px] p-[18px] text-danger" data-text="message"></p>
+  </template>
+</body>
+</html>

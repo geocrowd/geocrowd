@@ -1,0 +1,118 @@
+/*
+ * Back-office : source Tailwind CSS, compilée dans admin/css/admin.css (npm run build:admin).
+ * La mise en page est écrite en classes utilitaires dans admin/index.html et admin/js ;
+ * ce fichier définit le thème, deux variantes et les composants répétés.
+ */
+
+@import "tailwindcss";
+
+@source "../admin";
+
+@theme {
+  --color-brand: #0b7a55;
+  --color-brand-dark: #075c40;
+  --color-brand-soft: #e3f3ec;
+  --color-accent: #ff7a1a;
+  --color-ground: #dfe9e4;
+  --color-ink: #13201b;
+  --color-muted: #4a5a53;
+  --color-line: #e3ebe7;
+  --color-edge: #d3ddd8;
+  --color-mist: #eef3f0;
+  --color-danger: #b42318;
+  --color-danger-line: #f1cdc8;
+  --color-danger-soft: #fdecea;
+  --color-pending: #a14a06;
+  --color-pending-soft: #fef3e2;
+
+  --font-sans: 'Geist', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, monospace;
+
+  --text-tiny: 11px;
+  --text-meta: 13px;
+
+  --shadow-panel: 0 10px 30px rgb(15 40 30 / 0.14);
+}
+
+/* Élément courant de la navigation ou d'un groupe de boutons (classe « active » posée par le JS). */
+@custom-variant current (&.active);
+/* Ligne ou point sélectionné (classe « selected » posée par le JS). */
+@custom-variant selected (&.selected);
+
+@layer base {
+  body { @apply m-0 bg-ground font-sans text-sm text-ink; }
+  a { @apply text-brand hover:text-brand-dark; }
+  h1 { @apply m-0 text-xl font-bold; }
+  h2 { @apply m-0 text-base font-bold; }
+
+  input[type='file'] { @apply text-meta font-normal text-muted; }
+  input[type='file']::file-selector-button {
+    @apply mr-2.5 min-h-[34px] cursor-pointer rounded border border-edge bg-white px-3 font-semibold text-ink;
+  }
+}
+
+@layer components {
+  /* Panneau translucide posé sur la carte */
+  .glass { @apply rounded border border-white/70 bg-white/88 shadow-panel backdrop-blur-[14px]; }
+
+  .btn {
+    @apply inline-flex min-h-[34px] cursor-pointer items-center justify-center rounded border border-edge bg-white px-3
+      text-meta font-semibold text-ink no-underline hover:border-muted hover:text-ink disabled:cursor-default disabled:opacity-50;
+  }
+  .btn-primary { @apply border-brand bg-brand text-white hover:border-brand-dark hover:bg-brand-dark hover:text-white; }
+  .btn-danger { @apply border-danger-line text-danger hover:border-danger hover:text-danger; }
+  .link { @apply cursor-pointer border-0 bg-transparent p-0 text-brand underline; }
+
+  .icon-btn {
+    @apply size-[30px] cursor-pointer rounded border border-edge bg-white p-0 text-sm text-ink
+      enabled:hover:border-muted disabled:cursor-default disabled:opacity-35;
+  }
+  .icon-danger { @apply border-danger-line text-danger; }
+
+  .input {
+    @apply min-h-9 rounded border border-edge bg-white px-2.5 text-sm font-normal text-ink
+      disabled:bg-mist disabled:text-muted;
+  }
+  textarea.input { @apply resize-y py-2; }
+  .input-small { @apply min-h-8 text-meta; }
+  .input-code { @apply font-mono text-lg tracking-[0.12em]; }
+  .input-mono { @apply font-mono text-meta; }
+
+  .field { @apply flex flex-col gap-1.5 text-meta font-semibold; }
+  .field-error { @apply font-normal text-danger empty:hidden; }
+  .check { @apply flex min-h-9 items-center gap-2 text-sm font-normal [&_input]:accent-brand; }
+  /* Choix présenté en carte (rôle, réglage) : bordure verte quand il est coché */
+  .role {
+    @apply flex cursor-pointer items-start gap-2.5 rounded border border-edge bg-white p-2.5 font-normal
+      has-checked:border-brand [&_input]:mt-0.5 [&_input]:accent-brand;
+  }
+
+  .muted { @apply text-meta font-normal text-muted; }
+  .error { @apply m-0 text-meta text-danger; }
+
+  .badge { @apply inline-flex items-center gap-1 rounded bg-line px-2 py-0.5 text-tiny font-bold text-muted; }
+  .badge-pending { @apply bg-pending-soft text-pending; }
+  .badge-published, .badge-yes { @apply bg-brand-soft text-brand-dark; }
+  .badge-rejected { @apply bg-danger-soft text-danger; }
+  .badge-admin { @apply bg-ink text-white; }
+
+  /* Tableaux de données */
+  .table { @apply w-full border-collapse; }
+  .table :where(th, td) { @apply border-b border-line px-4 py-3 text-left text-sm; }
+  .table th { @apply text-xs font-semibold text-muted; }
+  .table td code { @apply text-xs text-muted; }
+  /* Comparaison avant / après d'une proposition (lignes construites par le JS) */
+  .table th[scope='row'] { @apply w-[30%] align-top text-meta text-ink; }
+  .diff td { @apply align-top wrap-anywhere; }
+  .diff-new { @apply bg-brand-soft; }
+
+  /* Vignettes d'images (construites par le JS) */
+  .thumbs { @apply m-0 flex list-none flex-wrap gap-2 p-0 empty:hidden; }
+  .thumb { @apply relative size-[72px]; }
+  .thumb img { @apply size-full rounded object-cover; }
+
+  /* Repères Leaflet */
+  .pin { @apply size-3.5 rounded-full border-[3px] border-white bg-brand shadow-[0_1px_4px_rgb(0_0_0/0.25)]; }
+  .pin-on { @apply size-[22px] bg-accent shadow-[0_0_0_8px_rgb(255_122_26/0.22)]; }
+  .leaflet-container { @apply font-sans; }
+}

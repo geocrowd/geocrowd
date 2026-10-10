@@ -1,0 +1,17 @@
+{
+  "name": "geocrowd",
+  "private": true,
+  "description": "Outils de développement : compilation du CSS (Tailwind). Le CSS compilé est commité, l'installation n'a pas besoin de Node.",
+  "license": "MIT",
+  "scripts": {
+    "build:css": "npm run build:admin && npm run build:front",
+    "build:admin": "tailwindcss -i styles/admin.css -o admin/css/admin.css --minify",
+    "build:front": "tailwindcss -i styles/front.css -o front/front.css --minify",
+    "watch:admin": "tailwindcss -i styles/admin.css -o admin/css/admin.css --watch",
+    "watch:front": "tailwindcss -i styles/front.css -o front/front.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "4.3.3",
+    "tailwindcss": "4.3.3"
+  }
+}
