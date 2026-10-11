@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Remplacé par le chemin de l'instance quand index.php sert cette page. -->
+  <base href="/">
+  <title>Carte</title>
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <!-- Compilé depuis styles/front.css par Tailwind (npm run build:front) -->
+  <link rel="stylesheet" href="front/front.css">
+  <script src="vendor/leaflet/leaflet.js" defer></script>
+  <script src="front/front.js" type="module"></script>
+</head>
+<body>
+  <header class="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line px-4 py-2.5">
+    <h1 class="m-0 flex-auto text-lg font-semibold" id="title"></h1>
+    <label class="flex items-center gap-2 text-sm text-muted" id="picker" hidden>
+      <span>Collection</span>
+      <select class="input min-h-9 w-auto min-w-[180px] py-1 text-ink" id="collection"></select>
+    </label>
+  </header>
+  <main class="flex min-h-0 flex-auto max-md:flex-col">
+    <section class="flex flex-[0_0_380px] flex-col gap-4 overflow-y-auto border-r border-line p-5 max-md:flex-none max-md:overflow-visible max-md:border-r-0" id="panel" aria-live="polite"></section>
+    <div class="min-h-80 flex-auto bg-soft max-md:order-first max-md:h-[55vh] max-md:flex-none" id="map" role="region" aria-label="Carte"></div>
+  </main>
+</body>
+</html>

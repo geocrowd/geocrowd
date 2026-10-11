@@ -1,0 +1,3 @@
+data/*
+!data/.htaccess
+node_modules/
